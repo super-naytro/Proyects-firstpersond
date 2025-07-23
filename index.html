@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chat P2P Individual y Grupal</title>
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
+  <style>
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #121212;
+      color: #eee;
+      margin: 0;
+      padding: 20px;
+    }
+    h2, h4 { color: #ff9800; }
+    #popup, #popupGrupo {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.85);
+      display: flex; justify-content: center; align-items: center;
+      transition: all 0.5s ease;
+    }
+    #popup form, #popupGrupo div {
+      background: #1e1e1e;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 0 20px #000;
+      width: 300px;
+    }
+    input, button {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      outline: none;
+      font-size: 14px;
+    }
+    input { background: #2c2c2c; color: #fff; }
+    button {
+      background: #ff9800; color: #fff;
+      cursor: pointer; transition: background 0.3s;
+    }
+    button:hover { background: #e68900; }
+    #chat {
+      background: #1e1e1e;
+      border-radius: 10px;
+      padding: 15px;
+      height: 300px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      box-shadow: inset 0 0 10px #000;
+    }
+    #chat div {
+      margin-bottom: 8px;
+      animation: fadeIn 0.3s ease;
+    }
+    #requestBox {
+      border: 2px dashed #ff9800;
+      background: #2c2c2c;
+      padding: 10px;
+      margin-bottom: 10px;
+      display: none;
+      border-radius: 8px;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+<div id="popup">
+  <form id="loginForm">
+    <h3>Ingrese usuario e ID</h3>
+    <input type="text" id="username" placeholder="Nombre de usuario" required style="width:95%" /><br /><br />
+    <input type="text" id="userid" placeholder="ID formato xxx-xxxx-xxxxx"
+      pattern="^\w{3}-\w{4}-\w{5}$"
+      title="Debe tener el formato xxx-xxxx-xxxxx"
+      required style="width:95%" /><br /><br />
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+
+<div id="popupGrupo" style="display:none;">
+  <div>
+    <h3>Grupo</h3>
+    <button onclick="crearGrupo()">Crear Grupo</button>
+    <button onclick="unirseGrupo()">Unirse a Grupo</button><br><br>
+    <button onclick="cerrarPopupGrupo()">Cancelar</button>
+  </div>
+</div>
+
+<h2>Chat P2P Volátil</h2>
+<div>Mi ID: <span id="my-id"></span></div>
+
+<div>
+  <input id="connectToId" placeholder="ID a quien quieres hablar" />
+  <button onclick="requestConnection()">Solicitar conexión</button>
+  <button onclick="abrirPopupGrupo()">Grupo</button>
+</div>
+
+<div id="requestBox">
+  <p><b>Solicitud de conexión de:</b> <span id="requestFrom"></span></p>
+  <button onclick="acceptRequest()">Aceptar</button>
+  <button onclick="rejectRequest()">Rechazar</button>
+</div>
+
+<h4>Chat con: <span id="current-peer">Nadie</span></h4>
+<div id="chat"></div>
+<input id="msg" placeholder="Mensaje" />
+<button onclick="send()">Enviar</button>
+
+<script>
+// Variables globales
+let peer, conn;
+let username;
+let esAnfitrion = false;
+let grupoPeers = [];
+
+const chat = document.getElementById("chat");
+const currentPeer = document.getElementById("current-peer");
+const requestBox = document.getElementById("requestBox");
+const requestFromSpan = document.getElementById("requestFrom");
+
+// Sonido para mensajes
+const beep = new Audio('https://www.soundjay.com/buttons/sounds/button-16.mp3');
+
+function notificarMensaje() {
+  beep.play().catch(() => {});
+  if (navigator.vibrate) navigator.vibrate(100);
+}
+
+function recibirMensaje(texto, de) {
+  chat.innerHTML += `<div><b>${de}:</b> ${texto}</div>`;
+  notificarMensaje();
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function mensajePropio(texto, nombre) {
+  chat.innerHTML += `<div style="color:#4caf50"><b>${nombre}:</b> ${texto}</div>`;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+// Iniciar sesión
+document.getElementById("loginForm").onsubmit = (e) => {
+  e.preventDefault();
+  username = document.getElementById("username").value.trim();
+  const userid = document.getElementById("userid").value.trim();
+  const idFormat = /^\w{3}-\w{4}-\w{5}$/;
+  if (!idFormat.test(userid)) {
+    alert("El ID debe tener el formato xxx-xxxx-xxxxx");
+    return;
+  }
+
+  peer = new Peer(userid);
+
+  peer.on("open", (id) => {
+    document.getElementById("popup").style.display = "none";
+    document.getElementById("my-id").textContent = id;
+  });
+
+  peer.on("error", (err) => {
+    if (err.type === "unavailable-id") {
+      alert("El ID ya está en uso.");
+      document.getElementById("popup").style.display = "flex";
+    } else {
+      alert("Error: " + err);
+    }
+  });
+
+  peer.on("connection", (incomingConn) => {
+    if (esAnfitrion) {
+      grupoPeers.push(incomingConn);
+      incomingConn.on("data", (data) => {
+        grupoPeers.forEach(p => {
+          if (p.peer !== incomingConn.peer) {
+            p.send(data);
+          }
+        });
+        recibirMensaje(data, incomingConn.peer);
+      });
+    } else {
+      if (conn) {
+        incomingConn.on("open", () => {
+          incomingConn.send("__BUSY__");
+          incomingConn.close();
+        });
+        return;
+      }
+      incomingConn.on("data", (data) => {
+        if (data.startsWith("__REQUEST__")) {
+          const fromUser = data.split(":")[1];
+          showRequest(incomingConn, fromUser);
+        }
+      });
+    }
+  });
+};
+
+let pendingConn = null;
+
+function showRequest(connection, fromUser) {
+  pendingConn = connection;
+  requestFromSpan.textContent = fromUser;
+  requestBox.style.display = "block";
+}
+
+function acceptRequest() {
+  if (!pendingConn) return;
+  conn = pendingConn;
+  currentPeer.textContent = conn.peer;
+  chat.innerHTML = "";
+  setupConnection();
+  conn.send("__ACCEPTED__");
+  requestBox.style.display = "none";
+  pendingConn = null;
+}
+
+function rejectRequest() {
+  if (!pendingConn) return;
+  pendingConn.send("__REJECTED__");
+  pendingConn.close();
+  requestBox.style.display = "none";
+  pendingConn = null;
+}
+
+function requestConnection() {
+  const destId = document.getElementById("connectToId").value.trim();
+  if (!destId) return alert("Ingresa un ID válido");
+
+  if (conn) {
+    conn.close();
+    chat.innerHTML = "";
+    currentPeer.textContent = "Nadie";
+  }
+
+  const connection = peer.connect(destId);
+
+  connection.on("open", () => {
+    connection.send(`__REQUEST__:${username}`);
+  });
+
+  connection.on("data", (data) => {
+    if (data === "__ACCEPTED__") {
+      conn = connection;
+      currentPeer.textContent = destId;
+      chat.innerHTML = "";
+      setupConnection();
+    } else if (data === "__REJECTED__") {
+      alert("Solicitud rechazada");
+      connection.close();
+    } else if (data === "__BUSY__") {
+      alert("El usuario está ocupado");
+      connection.close();
+    }
+  });
+
+  connection.on("error", (err) => {
+    alert("Error: " + err);
+  });
+}
+
+function setupConnection() {
+  conn.on("data", (data) => {
+    recibirMensaje(data, conn.peer);
+  });
+
+  conn.on("close", () => {
+    recibirMensaje("<i>Conexión cerrada</i>", "");
+    currentPeer.textContent = "Nadie";
+    conn = null;
+  });
+}
+
+function send() {
+  const message = document.getElementById("msg").value.trim();
+  if (!message) return;
+
+  mensajePropio(message, username);
+
+  if (esAnfitrion) {
+    grupoPeers.forEach(p => p.send(`${username}: ${message}`));
+  } else if (conn && conn.open) {
+    conn.send(`${username}: ${message}`);
+  } else {
+    alert("No hay conexión activa");
+  }
+
+  document.getElementById("msg").value = "";
+}
+
+// Grupo
+function abrirPopupGrupo() {
+  document.getElementById("popupGrupo").style.display = "flex";
+}
+
+function cerrarPopupGrupo() {
+  document.getElementById("popupGrupo").style.display = "none";
+}
+
+function crearGrupo() {
+  cerrarPopupGrupo();
+  const groupId = prompt("ID del grupo (XX-XX-XXX-XX):");
+  const idFormat = /^\w{2}-\w{2}-\w{3}-\w{2}$/;
+  if (!idFormat.test(groupId)) {
+    alert("Formato incorrecto");
+    return;
+  }
+  esAnfitrion = true;
+  grupoPeers = [];
+  peer = new Peer(groupId);
+
+  peer.on("open", (id) => {
+    document.getElementById("popup").style.display = "none";
+    document.getElementById("my-id").textContent = id;
+    currentPeer.textContent = "Grupo " + id;
+    chat.innerHTML = "";
+    recibirMensaje("<i>Grupo creado, esperando miembros...</i>", "");
+  });
+
+  peer.on("connection", (incomingConn) => {
+    grupoPeers.push(incomingConn);
+    incomingConn.on("data", (data) => {
+      grupoPeers.forEach(p => {
+        if (p.peer !== incomingConn.peer) {
+          p.send(data);
+        }
+      });
+      recibirMensaje(data, incomingConn.peer);
+    });
+  });
+}
+
+function unirseGrupo() {
+  cerrarPopupGrupo();
+  const groupId = prompt("ID del grupo (XX-XX-XXX-XX):");
+  const idFormat = /^\w{2}-\w{2}-\w{3}-\w{2}$/;
+  if (!idFormat.test(groupId)) {
+    alert("Formato incorrecto");
+    return;
+  }
+  const connection = peer.connect(groupId);
+
+  connection.on("open", () => {
+    conn = connection;
+    currentPeer.textContent = "Grupo " + groupId;
+    chat.innerHTML = "";
+    recibirMensaje("<i>Conectado al grupo</i>", "");
+    connection.on("data", (data) => {
+      recibirMensaje(data, "Grupo");
+    });
+  });
+
+  connection.on("error", (err) => {
+    alert("Error: " + err);
+  });
+}
+</script>
+
+</body>
+</html>
