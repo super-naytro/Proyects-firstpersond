@@ -252,12 +252,17 @@ function markAttendanceFromQR(qrData) {
 
 // VER ASISTENCIA
 function viewAttendance(){
-  if(attendanceRecords.length===0){ alert('No hay registros'); return; }
   const listDiv = document.getElementById('attendanceList');
+  if(attendanceRecords.length===0){
+    listDiv.innerHTML = '<h4>Asistencia actual:</h4><p style="color:#d32f2f;font-weight:bold;">No hay participantes o registros.</p>';
+    return;
+  }
   listDiv.innerHTML = '<h4>Asistencia actual:</h4>';
   attendanceRecords.forEach(r=>{
     listDiv.innerHTML += `<p>${r.user} - Entrada: ${r.entrada||'-'} | Salida: ${r.salida||'-'}</p>`;
   });
+  // Botón para descargar asistencia
+  listDiv.innerHTML += '<button onclick="downloadTxt()" style="margin-top:10px;background:linear-gradient(90deg,#1976d2 0%,#8e24aa 100%);color:#fff;font-weight:bold;border-radius:8px;border:none;box-shadow:0 2px 8px #1976d2;cursor:pointer;">Descargar asistencia</button>';
 }
 </script>
 </body>
