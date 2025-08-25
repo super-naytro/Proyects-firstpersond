@@ -1,36 +1,11 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <script>
-    function printQR() {
-      const qrCanvas = document.getElementById('qrCode');
-      if(!qrCanvas) { alert('No hay QR generado'); return; }
-
-      const dataUrl = qrCanvas.toDataURL(); // Convertir canvas a imagen
-
-      // Crear ventana temporal para imprimir
-      const printWindow = window.open('', '_blank');
-      printWindow.document.write(`
-        <html>
-        <head><title>Imprimir QR</title></head>
-        <body style="text-align:center;">
-          <h2>QR del Evento</h2>
-          <img src="${dataUrl}" style="width:250px;height:250px;">
-          <p>Escanea este código para marcar asistencia</p>
-        </body>
-        </html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      printWindow.print();
-      printWindow.close();
-    }
-  </script>
-<script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sistema de Asistencia QR</title>
 <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
 <style>
   body { font-family: Arial, sans-serif; margin:0; padding:0; background: #f0f4f8; display:flex; justify-content:center; align-items:center; min-height:100vh; }
   .container { width: 95%; max-width: 480px; background: #fff; border-radius: 12px; padding:20px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
@@ -98,8 +73,8 @@
       </span>
       Escanear QR con cámara
     </button>
-  <button onclick="viewAttendance()" id="viewAttendanceBtn">Ver asistencia</button>
-  <div id="attendanceList"></div>
+    <button onclick="viewAttendance()" id="viewAttendanceBtn">Ver asistencia</button>
+    <div id="attendanceList"></div>
     <button onclick="goMenu()">Volver</button>
   </div>
 </div>
@@ -128,39 +103,51 @@ function generateQR(){
   alert('QR generado. Solo válido 15 min antes y hasta 30 min antes de terminar.');
 }
 
-// SIMULAR ESCANEO (en la práctica usaría cámara o input QR)
+// IMPRIMIR QR
+function printQR() {
+  const qrCanvas = document.getElementById('qrCode');
+  if(!qrCanvas) { alert('No hay QR generado'); return; }
+  const dataUrl = qrCanvas.toDataURL();
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(`
+    <html>
+    <head><title>Imprimir QR</title></head>
+    <body style="text-align:center;">
+      <h2>QR del Evento</h2>
+      <img src="${dataUrl}" style="width:250px;height:250px;">
+      <p>Escanea este código para marcar asistencia</p>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  printWindow.print();
+  printWindow.close();
+}
+
+// ESCANEO MANUAL
 function scanQRCode(){
   if(!eventData){ alert('No hay QR generado'); return; }
   const user = document.getElementById('userName').value.trim();
   if(!user){ alert('Ingresa tu nombre/ID'); return; }
-
-  // Simular MAC aleatoria (en navegador no se puede acceder a MAC real)
   const mac = 'MAC-' + Math.floor(Math.random()*1e6).toString(16);
-
   const now = new Date();
   const currentMinutes = now.getHours()*60 + now.getMinutes();
   const startMinutes = timeToMinutes(eventData.start)-15;
   const endMinutes = timeToMinutes(eventData.end)-30;
-
   let record = attendanceRecords.find(r=>r.user===user);
   if(!record) record = { user, entrada:null, salida:null, mac, nameEvent:eventData.name, date:now.toLocaleDateString() };
-
-  // Entrada
   if(!record.entrada && currentMinutes >= startMinutes){
     record.entrada = now.toLocaleTimeString();
     alert('Entrada registrada');
-  } 
-  // Salida
-  else if(!record.salida && currentMinutes >= endMinutes){
+  } else if(!record.salida && currentMinutes >= endMinutes){
     record.salida = now.toLocaleTimeString();
     alert('Salida registrada');
-  } 
-  else { alert('No puedes marcar aún o ya registraste ambos'); return; }
-
+  } else { alert('No puedes marcar aún o ya registraste ambos'); return; }
   if(!attendanceRecords.includes(record)) attendanceRecords.push(record);
 }
 
-// DESCARGAR TXT SOLO ANFITRIÓN
+// DESCARGAR TXT
 function downloadTxt(){
   if(attendanceRecords.length===0){ alert('No hay registros'); return; }
   let txtContent = 'Evento\tFecha\tUsuario\tMAC\tEntrada\tSalida\n';
@@ -171,10 +158,9 @@ function downloadTxt(){
   link.href = URL.createObjectURL(blob);
   link.click();
 }
-</script>
-// ESCANEO DE QR CON CÁMARA
+
+// ESCANEO CÁMARA
 function openCameraScan() {
-  // Crear modal para cámara
   const modal = document.createElement('div');
   modal.style.position = 'fixed';
   modal.style.top = '0';
@@ -188,7 +174,6 @@ function openCameraScan() {
   modal.style.alignItems = 'center';
   modal.style.zIndex = '9999';
   modal.innerHTML = `
-  
     <div style="background:#fff;padding:20px;border-radius:12px;box-shadow:0 2px 8px #333;max-width:350px;text-align:center;">
       <h3>Escanear QR con cámara</h3>
       <video id="qrVideo" style="width:300px;height:220px;border-radius:8px;background:#222;" autoplay></video>
@@ -206,14 +191,12 @@ function openCameraScan() {
   let stream;
   let scanInterval;
 
-  // Cerrar modal y detener cámara
   modal.querySelector('#closeCamBtn').onclick = function() {
     if(stream) stream.getTracks().forEach(t=>t.stop());
     clearInterval(scanInterval);
     modal.remove();
   };
 
-  // Acceder a la cámara
   navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
     .then(function(s) {
       stream = s;
@@ -242,7 +225,7 @@ function openCameraScan() {
     });
 }
 
-// Procesar asistencia desde QR escaneado
+// PROCESAR QR
 function markAttendanceFromQR(qrData) {
   let event;
   try { event = JSON.parse(qrData); } catch(e) { alert('QR inválido'); return; }
@@ -276,5 +259,6 @@ function viewAttendance(){
     listDiv.innerHTML += `<p>${r.user} - Entrada: ${r.entrada||'-'} | Salida: ${r.salida||'-'}</p>`;
   });
 }
+</script>
 </body>
 </html>
