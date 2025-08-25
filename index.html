@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <script>
+    function printQR() {
+      const qrCanvas = document.getElementById('qrCode');
+      if(!qrCanvas) { alert('No hay QR generado'); return; }
+
+      const dataUrl = qrCanvas.toDataURL(); // Convertir canvas a imagen
+
+      // Crear ventana temporal para imprimir
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(`
+        <html>
+        <head><title>Imprimir QR</title></head>
+        <body style="text-align:center;">
+          <h2>QR del Evento</h2>
+          <img src="${dataUrl}" style="width:250px;height:250px;">
+          <p>Escanea este código para marcar asistencia</p>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    }
+  </script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema de Asistencia QR</title>
+<script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
+<style>
+  body { font-family: Arial, sans-serif; margin:0; padding:0; background: #f0f4f8; display:flex; justify-content:center; align-items:center; min-height:100vh; }
+  .container { width: 95%; max-width: 480px; background: #fff; border-radius: 12px; padding:20px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+  h1 { text-align:center; margin-bottom:20px; }
+  .menu { display:flex; justify-content: space-between; gap:10px; margin-bottom:20px; }
+  .menu div { flex:1; background:#4CAF50; color:#fff; padding:20px; border-radius:10px; text-align:center; font-weight:bold; cursor:pointer; transition:0.3s; }
+  .menu div:hover { background:#45a049; }
+  .hidden { display:none; }
+  input, button { width: 100%; padding:10px; margin:10px 0; border-radius:6px; border:1px solid #ccc; }
+  button { background:#2196F3; color:#fff; border:none; cursor:pointer; transition:0.3s; }
+  button:hover { background:#1976D2; }
+  canvas { display:block; margin:20px auto; }
+  @media(max-width:480px){ .menu { flex-direction: column; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Sistema de Asistencia QR</h1>
+
+  <!-- MENU PRINCIPAL -->
+  <div id="menu" class="menu">
+    <div onclick="showCreate()">Crear Evento</div>
+    <div onclick="showAttend()">Asistir</div>
+  </div>
+
+  <!-- CREAR EVENTO -->
+  <div id="createEvent" class="hidden">
+    <h3>Crear Evento</h3>
+    <input type="text" id="eventName" placeholder="Nombre del evento">
+    <input type="time" id="startTime">
+    <input type="time" id="endTime">
+    <button onclick="generateQR()">Generar QR</button>
+    <canvas id="qrCode"></canvas>
+    <button onclick="printQR()" style="display:block;margin:1rem auto;padding:0.7rem 2rem;background:linear-gradient(90deg,#1976d2 0%,#8e24aa 100%);color:#fff;font-weight:bold;border-radius:8px;border:none;box-shadow:0 2px 8px #1976d2;cursor:pointer;">Imprimir QR</button>
+    <button onclick="downloadTxt()">Descargar asistencia (Solo anfitrión)</button>
+    <button onclick="goMenu()">Volver</button>
+  </div>
+
+  <!-- ASISTIR -->
+  <div id="attendEvent" class="hidden">
+    <h3>Marcar Asistencia</h3>
+    <input type="text" id="userName" placeholder="Tu nombre o ID">
+    <button onclick="scanQRCode()">Escanear QR</button>
+    <button onclick="goMenu()">Volver</button>
+  </div>
+</div>
+
+<script>
+let attendanceRecords = [];
+let eventData = null;
+
+// MENU
+function showCreate(){ document.getElementById('menu').classList.add('hidden'); document.getElementById('createEvent').classList.remove('hidden'); }
+function showAttend(){ document.getElementById('menu').classList.add('hidden'); document.getElementById('attendEvent').classList.remove('hidden'); }
+function goMenu(){ document.getElementById('createEvent').classList.add('hidden'); document.getElementById('attendEvent').classList.add('hidden'); document.getElementById('menu').classList.remove('hidden'); }
+
+// CONVERTIR HH:MM A MINUTOS
+function timeToMinutes(hhmm){ const [h,m] = hhmm.split(':').map(Number); return h*60 + m; }
+
+// GENERAR QR
+function generateQR(){
+  const name = document.getElementById('eventName').value.trim();
+  const start = document.getElementById('startTime').value;
+  const end = document.getElementById('endTime').value;
+  if(!name || !start || !end){ alert('Completa todos los campos'); return; }
+
+  eventData = { name, start, end };
+  new QRious({ element: document.getElementById('qrCode'), value: JSON.stringify(eventData), size:200 });
+  alert('QR generado. Solo válido 15 min antes y hasta 30 min antes de terminar.');
+}
+
+// SIMULAR ESCANEO (en la práctica usaría cámara o input QR)
+function scanQRCode(){
+  if(!eventData){ alert('No hay QR generado'); return; }
+  const user = document.getElementById('userName').value.trim();
+  if(!user){ alert('Ingresa tu nombre/ID'); return; }
+
+  // Simular MAC aleatoria (en navegador no se puede acceder a MAC real)
+  const mac = 'MAC-' + Math.floor(Math.random()*1e6).toString(16);
+
+  const now = new Date();
+  const currentMinutes = now.getHours()*60 + now.getMinutes();
+  const startMinutes = timeToMinutes(eventData.start)-15;
+  const endMinutes = timeToMinutes(eventData.end)-30;
+
+  let record = attendanceRecords.find(r=>r.user===user);
+  if(!record) record = { user, entrada:null, salida:null, mac, nameEvent:eventData.name, date:now.toLocaleDateString() };
+
+  // Entrada
+  if(!record.entrada && currentMinutes >= startMinutes){
+    record.entrada = now.toLocaleTimeString();
+    alert('Entrada registrada');
+  } 
+  // Salida
+  else if(!record.salida && currentMinutes >= endMinutes){
+    record.salida = now.toLocaleTimeString();
+    alert('Salida registrada');
+  } 
+  else { alert('No puedes marcar aún o ya registraste ambos'); return; }
+
+  if(!attendanceRecords.includes(record)) attendanceRecords.push(record);
+}
+
+// DESCARGAR TXT SOLO ANFITRIÓN
+function downloadTxt(){
+  if(attendanceRecords.length===0){ alert('No hay registros'); return; }
+  let txtContent = 'Evento\tFecha\tUsuario\tMAC\tEntrada\tSalida\n';
+  attendanceRecords.forEach(r=>{ txtContent+=`${r.nameEvent}\t${r.date}\t${r.user}\t${r.mac}\t${r.entrada||''}\t${r.salida||''}\n`; });
+  const blob = new Blob([txtContent], {type:'text/plain'});
+  const link = document.createElement('a');
+  link.download = 'asistencia.txt';
+  link.href = URL.createObjectURL(blob);
+  link.click();
+}
+</script>
+</body>
+</html>
