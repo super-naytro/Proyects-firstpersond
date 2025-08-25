@@ -26,6 +26,7 @@
       printWindow.close();
     }
   </script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sistema de Asistencia QR</title>
@@ -41,6 +42,24 @@
   input, button { width: 100%; padding:10px; margin:10px 0; border-radius:6px; border:1px solid #ccc; }
   button { background:#2196F3; color:#fff; border:none; cursor:pointer; transition:0.3s; }
   button:hover { background:#1976D2; }
+  #cameraScanBtn {
+    background: linear-gradient(90deg,#43a047 0%,#00bcd4 100%);
+    color: #fff;
+    font-weight: bold;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px #43a04744;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.08rem;
+    border: none;
+    margin-bottom: 8px;
+    gap: 8px;
+  }
+  #cameraScanBtn:hover {
+    background: linear-gradient(90deg,#388e3c 0%,#0097a7 100%);
+    box-shadow: 0 4px 12px #43a04766;
+  }
   canvas { display:block; margin:20px auto; }
   @media(max-width:480px){ .menu { flex-direction: column; } }
 </style>
@@ -72,7 +91,15 @@
   <div id="attendEvent" class="hidden">
     <h3>Marcar Asistencia</h3>
     <input type="text" id="userName" placeholder="Tu nombre o ID">
-    <button onclick="scanQRCode()">Escanear QR</button>
+    <button onclick="scanQRCode()">Escanear QR (manual)</button>
+    <button onclick="openCameraScan()" id="cameraScanBtn">
+      <span style="vertical-align:middle;display:inline-block;margin-right:8px;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2" ry="2"/><path d="M16 3l-4 4-4-4"/></svg>
+      </span>
+      Escanear QR con cámara
+    </button>
+  <button onclick="viewAttendance()" id="viewAttendanceBtn">Ver asistencia</button>
+  <div id="attendanceList"></div>
     <button onclick="goMenu()">Volver</button>
   </div>
 </div>
@@ -145,5 +172,109 @@ function downloadTxt(){
   link.click();
 }
 </script>
+// ESCANEO DE QR CON CÁMARA
+function openCameraScan() {
+  // Crear modal para cámara
+  const modal = document.createElement('div');
+  modal.style.position = 'fixed';
+  modal.style.top = '0';
+  modal.style.left = '0';
+  modal.style.width = '100vw';
+  modal.style.height = '100vh';
+  modal.style.background = 'rgba(0,0,0,0.8)';
+  modal.style.display = 'flex';
+  modal.style.flexDirection = 'column';
+  modal.style.justifyContent = 'center';
+  modal.style.alignItems = 'center';
+  modal.style.zIndex = '9999';
+  modal.innerHTML = `
+  
+    <div style="background:#fff;padding:20px;border-radius:12px;box-shadow:0 2px 8px #333;max-width:350px;text-align:center;">
+      <h3>Escanear QR con cámara</h3>
+      <video id="qrVideo" style="width:300px;height:220px;border-radius:8px;background:#222;" autoplay></video>
+      <canvas id="qrCanvas" style="display:none;"></canvas>
+      <br>
+      <button id="closeCamBtn" style="margin-top:10px;background:#d32f2f;">Cerrar</button>
+      <div id="qrResult" style="margin-top:10px;color:#388e3c;font-weight:bold;"></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const video = modal.querySelector('#qrVideo');
+  const canvas = modal.querySelector('#qrCanvas');
+  const qrResult = modal.querySelector('#qrResult');
+  let stream;
+  let scanInterval;
+
+  // Cerrar modal y detener cámara
+  modal.querySelector('#closeCamBtn').onclick = function() {
+    if(stream) stream.getTracks().forEach(t=>t.stop());
+    clearInterval(scanInterval);
+    modal.remove();
+  };
+
+  // Acceder a la cámara
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(function(s) {
+      stream = s;
+      video.srcObject = stream;
+      video.setAttribute('playsinline', true);
+      video.play();
+      scanInterval = setInterval(function() {
+        if(video.readyState === video.HAVE_ENOUGH_DATA) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, canvas.width, canvas.height);
+          if(code) {
+            qrResult.textContent = 'QR detectado';
+            markAttendanceFromQR(code.data);
+            clearInterval(scanInterval);
+            setTimeout(()=>{ if(stream) stream.getTracks().forEach(t=>t.stop()); modal.remove(); }, 1200);
+          }
+        }
+      }, 500);
+    })
+    .catch(function(err) {
+      qrResult.textContent = 'No se pudo acceder a la cámara';
+    });
+}
+
+// Procesar asistencia desde QR escaneado
+function markAttendanceFromQR(qrData) {
+  let event;
+  try { event = JSON.parse(qrData); } catch(e) { alert('QR inválido'); return; }
+  if(!event || !event.name || !event.start || !event.end) { alert('QR de evento inválido'); return; }
+  eventData = event;
+  const user = document.getElementById('userName').value.trim();
+  if(!user){ alert('Ingresa tu nombre/ID antes de escanear'); return; }
+  const mac = 'MAC-' + Math.floor(Math.random()*1e6).toString(16);
+  const now = new Date();
+  const currentMinutes = now.getHours()*60 + now.getMinutes();
+  const startMinutes = timeToMinutes(eventData.start)-15;
+  const endMinutes = timeToMinutes(eventData.end)-30;
+  let record = attendanceRecords.find(r=>r.user===user);
+  if(!record) record = { user, entrada:null, salida:null, mac, nameEvent:eventData.name, date:now.toLocaleDateString() };
+  if(!record.entrada && currentMinutes >= startMinutes){
+    record.entrada = now.toLocaleTimeString();
+    alert('Entrada registrada por QR');
+  } else if(!record.salida && currentMinutes >= endMinutes){
+    record.salida = now.toLocaleTimeString();
+    alert('Salida registrada por QR');
+  } else { alert('No puedes marcar aún o ya registraste ambos'); return; }
+  if(!attendanceRecords.includes(record)) attendanceRecords.push(record);
+}
+
+// VER ASISTENCIA
+function viewAttendance(){
+  if(attendanceRecords.length===0){ alert('No hay registros'); return; }
+  const listDiv = document.getElementById('attendanceList');
+  listDiv.innerHTML = '<h4>Asistencia actual:</h4>';
+  attendanceRecords.forEach(r=>{
+    listDiv.innerHTML += `<p>${r.user} - Entrada: ${r.entrada||'-'} | Salida: ${r.salida||'-'}</p>`;
+  });
+}
 </body>
 </html>
